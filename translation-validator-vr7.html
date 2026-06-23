@@ -743,6 +743,34 @@
     margin-top: 5px;
   }
 
+  /* ─── v7 Back-translation evidence diff card ─── */
+  .btdiff { border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-top:12px; background:var(--surface); }
+  .btdiff-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 14px; border-bottom:1px solid var(--border); }
+  .btdiff-title { font-size:12px; font-weight:600; color:var(--text); }
+  .btdiff-sub { font-size:11px; color:var(--text-muted); }
+  .btdiff-pill { margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:11px; padding:3px 10px; border-radius:10px; font-family:var(--mono); }
+  .btdiff-pill.ok   { background:rgba(0,158,115,0.12); color:#065f46; border:1px solid rgba(0,158,115,0.35); }
+  .btdiff-pill.warn { background:rgba(230,159,0,0.14); color:#92400e; border:1px solid rgba(230,159,0,0.4); }
+  .btdiff-pill.fail { background:rgba(213,94,0,0.14);  color:#9a3412; border:1px solid rgba(213,94,0,0.4); }
+  .btdiff-cols { display:grid; grid-template-columns:1fr 1fr; }
+  @media (max-width:700px){ .btdiff-cols { grid-template-columns:1fr; } }
+  .btdiff-col { padding:12px 14px; }
+  .btdiff-col:first-child { border-right:1px solid var(--border); }
+  @media (max-width:700px){ .btdiff-col:first-child { border-right:none; border-bottom:1px solid var(--border); } }
+  .btdiff-collabel { font-size:10px; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-muted); margin-bottom:7px; }
+  .btdiff-textbody { font-size:13px; line-height:1.7; color:var(--text); word-break:break-word; }
+  .btdiff-legend { display:flex; flex-wrap:wrap; gap:14px; padding:9px 14px; border-top:1px solid var(--border); background:var(--surface2); }
+  .btdiff-legend span { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); }
+  .btdiff-swatch { width:11px; height:11px; border-radius:3px; display:inline-block; }
+  .btdiff-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:22px 14px; }
+  .btdiff-empty .ico { font-size:22px; color:#059669; line-height:1; }
+  .btdiff-empty .t1 { font-size:13px; color:var(--text); }
+  .btdiff-empty .t2 { font-size:11px; color:var(--text-muted); text-align:center; max-width:380px; line-height:1.6; }
+  .btdiff-grade-btn { font-size:10px; font-family:var(--mono); padding:2px 9px; border-radius:4px; border:1px solid #6366f1; background:transparent; color:#6366f1; cursor:pointer; }
+  .btdiff-grade-btn:hover { background:rgba(99,102,241,0.08); }
+  .btdiff-grade-btn:disabled { opacity:0.6; cursor:default; }
+  .btdiff-graded-tag { font-size:10px; font-family:var(--mono); padding:2px 8px; border-radius:10px; background:rgba(99,102,241,0.1); color:#4f46e5; border:1px solid rgba(99,102,241,0.3); }
+
   /* ─── SCORES ROW ─── */
   .scores-row {
     display: grid;
@@ -1654,6 +1682,7 @@
           <div class="text-content back" id="backBDisplay"><div class="card-loading"><div class="mini-spin"></div> Waiting...</div></div>
         </div>
       </div>
+      <div id="singleBackDiff"></div>
       <div class="score-panel">
         <div class="score-meters">
           <div class="meter-group"><div class="meter-label"><span>A vs Original</span><span class="meter-value" id="scoreAVal">—</span></div><div class="meter-track"><div class="meter-fill" id="meterA"></div></div></div>
@@ -4928,6 +4957,203 @@ function buildDiffPanel(s) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// v7 — Back-translation evidence diff (the "show me WHY" view)
+// Renders source vs back-translation with <ins>/<del> word markup,
+// a match-quality pill, a plain-language legend, and an explicit
+// "No differences detected" state for the legitimate 100% case.
+// Reuses the existing LCS wordDiff/diffStats engine — no dependency.
+// ═══════════════════════════════════════════════════════════════
+function buildBackTranslationDiff(original, backText, opts = {}) {
+  const o = String(original || '').trim();
+  const b = String(backText || '').trim();
+  if (!o || !b) return '';
+  // Ignore back-translation placeholders/errors
+  if (/^\(.*\)$/.test(b) || /^\[/.test(b)) return '';
+
+  let ops, stats;
+  try {
+    ops = wordDiff(o, b);
+    stats = diffStats(ops);
+  } catch(e) { return ''; }
+
+  const subLabel  = opts.subLabel || '';
+  const engine    = opts.engine || 'Back-translation';
+  const diffCount = stats.ins + stats.del;
+
+  // Empty / clean case — the legitimate 100% match
+  if (diffCount === 0) {
+    return `
+      <div class="btdiff">
+        <div class="btdiff-head">
+          <span class="btdiff-title">${esc(engine)} check</span>
+          ${subLabel ? `<span class="btdiff-sub">${esc(subLabel)}</span>` : ''}
+          <span class="btdiff-pill ok">✓ No differences · 100%</span>
+        </div>
+        <div class="btdiff-empty">
+          <div class="ico">=</div>
+          <div class="t1">No differences detected</div>
+          <div class="t2">The round-trip back-translation matches the source. This is the legitimate 100% case — nothing to review.</div>
+        </div>
+      </div>`;
+  }
+
+  const pillClass = stats.pct >= 85 ? 'ok' : stats.pct >= 65 ? 'warn' : 'fail';
+  const pillIcon  = stats.pct >= 85 ? '✓' : '⚠';
+  const pillText  = `${pillIcon} ${diffCount} difference${diffCount !== 1 ? 's' : ''} · ${stats.pct}%`;
+
+  // Stable id so the async grader can find & re-render this card
+  const diffId = opts.diffId || ('btd-' + Math.random().toString(36).slice(2, 9));
+  const grades = opts.grades || null;           // {regionKey: 'critical'|'minor'|'neutral'}
+  const graded = !!grades;
+
+  // Legend differs once graded: criticality colours replace the generic ins/del key
+  const legendHtml = graded
+    ? `<span><span class="btdiff-swatch" style="background:rgba(213,94,0,0.32)"></span>Meaning-critical — changes obligation, dosage, safety, or sense</span>
+       <span><span class="btdiff-swatch" style="background:rgba(230,159,0,0.32)"></span>Minor — register/word-choice drift, meaning largely intact</span>
+       <span><span class="btdiff-swatch" style="background:rgba(0,158,115,0.28)"></span>Neutral — synonym or word-order, no meaning change</span>`
+    : `<span><span class="btdiff-swatch" style="background:rgba(213,94,0,0.30)"></span>Dropped from source — ${stats.del} word${stats.del !== 1 ? 's' : ''} lost on round-trip</span>
+       <span><span class="btdiff-swatch" style="background:rgba(0,158,115,0.30)"></span>Added / shifted — ${stats.ins} word${stats.ins !== 1 ? 's' : ''} not in source</span>`;
+
+  const gradeBtn = graded
+    ? `<span class="btdiff-graded-tag" title="Differences classified by meaning impact">⬡ meaning-graded</span>`
+    : (claudeKey()
+        ? `<button class="btdiff-grade-btn" onclick='gradeDiffMeaning(this, ${JSON.stringify(o)}, ${JSON.stringify(b)}, ${JSON.stringify({ engine, subLabel, diffId })})'>⬡ Grade by meaning</button>`
+        : '');
+
+  return `
+    <div class="btdiff" id="${diffId}">
+      <div class="btdiff-head">
+        <span class="btdiff-title">${esc(engine)} check</span>
+        ${subLabel ? `<span class="btdiff-sub">${esc(subLabel)}</span>` : ''}
+        ${gradeBtn}
+        <span class="btdiff-pill ${pillClass}">${pillText}</span>
+      </div>
+      <div class="btdiff-cols">
+        <div class="btdiff-col">
+          <div class="btdiff-collabel">Source <span style="text-transform:none">(deletions vs back-translation)</span></div>
+          <div class="btdiff-textbody">${graded ? renderDiffOpsGraded(ops, 'left', grades) : renderDiffOps(ops, 'left')}</div>
+        </div>
+        <div class="btdiff-col">
+          <div class="btdiff-collabel">Back-translation <span style="text-transform:none">(insertions vs source)</span></div>
+          <div class="btdiff-textbody">${graded ? renderDiffOpsGraded(ops, 'right', grades) : renderDiffOps(ops, 'right')}</div>
+        </div>
+      </div>
+      <div class="btdiff-legend">
+        ${legendHtml}
+      </div>
+    </div>`;
+}
+
+// Group consecutive ins/del ops into numbered "difference regions" so the
+// LLM grades whole changes, not individual words. Adjacent changes separated
+// only by whitespace are merged so e.g. "50 mg" stays one region.
+function diffRegions(ops) {
+  const regions = [];
+  let cur = null, pendingSpace = false;
+  ops.forEach(op => {
+    const isSpace = /^\s+$/.test(op.text);
+    if (op.type === 'same') {
+      if (isSpace && cur) { pendingSpace = true; return; } // whitespace between two changes
+      if (cur) { regions.push(cur); cur = null; pendingSpace = false; }
+      return;
+    }
+    if (isSpace) { if (cur) pendingSpace = true; return; }
+    if (!cur) cur = { del: '', ins: '' };
+    else if (pendingSpace) { cur.del += ' '; cur.ins += ' '; pendingSpace = false; }
+    if (op.type === 'del') cur.del += op.text;
+    else if (op.type === 'ins') cur.ins += op.text;
+  });
+  if (cur) regions.push(cur);
+  return regions.map((r, i) => ({ key: 'R' + i, del: r.del.trim(), ins: r.ins.trim() }));
+}
+
+// Render diff ops, colour-graded by region criticality.
+// grades maps a region signature → 'critical'|'minor'|'neutral'.
+function renderDiffOpsGraded(ops, side, grades) {
+  const GRADE_STYLE = {
+    critical: 'background:rgba(213,94,0,0.30);color:#7c2d12;border-radius:2px;padding:0 1px',
+    minor:    'background:rgba(230,159,0,0.30);color:#854d0e;border-radius:2px;padding:0 1px',
+    neutral:  'background:rgba(0,158,115,0.26);color:#065f46;border-radius:2px;padding:0 1px'
+  };
+  // Walk ops, tracking which region each non-same run belongs to (same order as diffRegions)
+  let regionIdx = -1, inRegion = false;
+  return ops.map(op => {
+    const t = esc(op.text);
+    if (op.type === 'same' || /^\s+$/.test(op.text)) {
+      if (!/^\s+$/.test(op.text)) inRegion = false;
+      return op.type === 'same' ? `<span class="diff-same">${t}</span>` : t;
+    }
+    // start of a new region?
+    if (!inRegion) { regionIdx++; inRegion = true; }
+    const g = grades['R' + regionIdx] || 'minor';
+    const showOnThisSide = (side === 'left' && op.type === 'del') || (side === 'right' && op.type === 'ins');
+    if (!showOnThisSide) return '';
+    const deco = op.type === 'del' ? 'text-decoration:line-through;' : '';
+    return `<span style="${GRADE_STYLE[g] || GRADE_STYLE.minor};${deco}" title="${g} difference">${t}</span>`;
+  }).join('');
+}
+
+// Async: ask the LLM to classify each difference region by meaning impact,
+// then re-render the card in place with criticality colours.
+async function gradeDiffMeaning(btn, original, backText, opts) {
+  if (!claudeKey()) return;
+  const card = document.getElementById(opts.diffId);
+  const original_ = String(original || ''), back_ = String(backText || '');
+  let ops; try { ops = wordDiff(original_, back_); } catch(e) { return; }
+  const regions = diffRegions(ops);
+  if (!regions.length) return;
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ grading…'; }
+
+  const regionLines = regions.map(r =>
+    `${r.key}: source="${r.del || '(nothing)'}" ↔ back-translation="${r.ins || '(nothing)'}"`
+  ).join('\n');
+
+  const prompt = `You are a regulatory translation QA reviewer. A source text was translated and then back-translated to English. Below are the DIFFERENCE REGIONS between the source and the round-trip back-translation. Classify EACH region by how much the meaning changed:
+
+- "critical" = meaning/safety/obligation/number/dosage/deadline changed, or a clause was added or lost. (e.g. "must" → "should", "50 mg" dropped, "immediately" → "when convenient", a negation flipped)
+- "minor" = register or word-choice drift; meaning largely preserved but not ideal.
+- "neutral" = pure synonym, word-order, or article/grammar variation with NO meaning change.
+
+SOURCE: ${original_}
+
+BACK-TRANSLATION: ${back_}
+
+DIFFERENCE REGIONS:
+${regionLines}
+
+Return ONLY minified JSON mapping each region key to its grade, no markdown:
+{"R0":"critical","R1":"neutral",...}`;
+
+  let grades = {};
+  try {
+    const resp = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt);
+    const m = resp.replace(/```json|```/g, '').match(/\{[\s\S]*\}/);
+    grades = JSON.parse(m ? m[0] : resp);
+  } catch(e) {
+    // Fallback heuristic: number/negation/modal changes → critical, else minor
+    regions.forEach(r => {
+      const txt = (r.del + ' ' + r.ins).toLowerCase();
+      const numChanged = (r.del.match(/\d+/g) || []).join() !== (r.ins.match(/\d+/g) || []).join();
+      const modal = /\b(must|shall|should|may|never|not|no|don't|cannot)\b/.test(txt);
+      grades[r.key] = (numChanged || modal) ? 'critical' : (r.del && r.ins ? 'minor' : 'minor');
+    });
+  }
+
+  // Normalise unexpected values
+  Object.keys(grades).forEach(k => {
+    if (!['critical','minor','neutral'].includes(grades[k])) grades[k] = 'minor';
+  });
+
+  if (card) {
+    const fresh = buildBackTranslationDiff(original_, back_, { ...opts, grades });
+    const wrap = document.createElement('div');
+    wrap.innerHTML = fresh;
+    if (wrap.firstElementChild) card.replaceWith(wrap.firstElementChild);
+  }
+}
+
 function buildFullBodyHTML(s) {
   const thr = getThreshold('pdf');
   const lang = document.getElementById('pdfTargetLang')?.value || '';
@@ -4983,7 +5209,7 @@ function buildFullBodyHTML(s) {
         <div class="pane-text">${highlightedOriginal}</div>
       </div>
       <div class="section-text-pane">
-        <div class="pane-label">${finalLabel}<span class="llm-badge" style="background:rgba(0,100,220,0.10);color:#1d4ed8;border:1px solid rgba(0,100,220,0.3)">${deeplProxyUrl() && DEEPL_LANG_MAP[lang] ? "DeepL" : "Claude Haiku"}</span>${flagBtn}${artefactBadge}<button onclick="revalidateSection(${s.id})" id="revalBtn-${s.id}" style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #6366f1;background:transparent;color:#6366f1;cursor:pointer;margin-left:6px;font-family:var(--mono)">🔬 Validate</button></div>
+        <div class="pane-label">${finalLabel}<span class="llm-badge" style="background:rgba(0,100,220,0.10);color:#1d4ed8;border:1px solid rgba(0,100,220,0.3)">${deeplProxyUrl() && DEEPL_LANG_MAP[lang] ? "DeepL" : "Claude Haiku"}</span>${flagBtn}${artefactBadge}<button onclick="revalidateSection(${s.id})" id="revalBtn-${s.id}" style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #6366f1;background:transparent;color:#6366f1;cursor:pointer;margin-left:6px;font-family:var(--mono)">🔬 Validate</button><button onclick="sendSectionForLocalisation(${s.id})" id="locBtn-${s.id}" title="Send this section to a reviewer's localisation queue" style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #0891b2;background:transparent;color:#0891b2;cursor:pointer;margin-left:6px;font-family:var(--mono)">📤 Send for Localisation</button></div>
         <div class="pane-text translated${s.accepted ? ' accepted-final' : ''}" id="transText-${s.id}">${highlightedTranslation}</div>
         ${markLegend}
       </div>
@@ -4999,6 +5225,7 @@ function buildFullBodyHTML(s) {
         <div class="pane-text back-translated">${esc(s.backB)}</div>
       </div>
     </div>
+    ${buildBackTranslationDiff(s.original, s.backA, { engine: 'Back-translation', subLabel: (s.translatedTitle || s.title || ('Section ' + (s.id+1))) })}
     ${buildDiffPanel(s)}
     <div class="scores-row">
       <div class="score-cell">
@@ -6705,6 +6932,7 @@ async function runSingleValidation() {
 
     document.getElementById('backADisplay').textContent = result.backA;
     document.getElementById('backBDisplay').textContent = result.backB;
+    { const _d = document.getElementById('singleBackDiff'); if (_d) _d.innerHTML = buildBackTranslationDiff(originalText, result.backA, { engine: 'Back-translation', subLabel: 'Source vs round-trip' }); }
 
     setMeterVal('scoreAVal', result.scoreA + '%');
     setMeterVal('scoreBVal', result.scoreB + '%');
@@ -6824,6 +7052,7 @@ async function singleConfirmEdit() {
     singleState = { ...singleState, ...result };
     document.getElementById('backADisplay').textContent = result.backA;
     document.getElementById('backBDisplay').textContent = result.backB;
+    { const _d = document.getElementById('singleBackDiff'); if (_d) _d.innerHTML = buildBackTranslationDiff(singleState.originalText, result.backA, { engine: 'Back-translation', subLabel: 'Source vs round-trip' }); }
     setMeterVal('scoreAVal', result.scoreA + '%');
     setMeterVal('scoreBVal', result.scoreB + '%');
     setMeterVal('scoreABVal', result.scoreAB + '%');
@@ -6853,6 +7082,7 @@ async function singleRetry() {
     singleState = { ...singleState, ...result };
     document.getElementById('backADisplay').textContent = result.backA;
     document.getElementById('backBDisplay').textContent = result.backB;
+    { const _d = document.getElementById('singleBackDiff'); if (_d) _d.innerHTML = buildBackTranslationDiff(singleState.originalText, result.backA, { engine: 'Back-translation', subLabel: 'Source vs round-trip' }); }
     setMeterVal('scoreAVal', result.scoreA + '%');
     setMeterVal('scoreBVal', result.scoreB + '%');
     setMeterVal('scoreABVal', result.scoreAB + '%');
@@ -8419,6 +8649,95 @@ Lessons: ${videoSections.length} · Language: ${targetLang} · Threshold: ${docu
   a.href = URL.createObjectURL(blob);
   a.download = `certifiediq-course-${targetLang}-${Date.now()}.html`;
   a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// v7 — Send a single SECTION for human localisation, assigned in-app
+// like a learning task. Pushes to the same LMS backend used for
+// courses (via the /lms proxy), with action 'addLocalisationTask'.
+// The reviewer picks it up in their LMS queue and completes it there.
+// Falls back to an XLIFF download if the LMS backend isn't reachable.
+// ═══════════════════════════════════════════════════════════════
+function buildSectionXliff(s, srcLang, tgtLang) {
+  const x = str => String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const srcCode = (srcLang || 'en').toString().slice(0,2).toLowerCase();
+  const tgtCode = (DEEPL_LANG_MAP[tgtLang] || tgtLang || 'xx').toString().slice(0,2).toLowerCase();
+  const unit = `    <trans-unit id="1" approved="no">
+      <source xml:lang="${srcCode}">${x(s.original)}</source>
+      <target xml:lang="${tgtCode}" state="needs-review-translation">${x(s.accepted ? s.acceptedText : s.translation)}</target>
+      <note from="CertifiedIQ">Round-trip score ${s.finalScore ?? '—'}% · outcome ${s.outcome || '—'}. Please verify against source; preserve numbers, dosages, obligations and regulated terms.</note>
+    </trans-unit>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file original="${x(s.translatedTitle || s.title || ('section-'+(s.id+1)))}" source-language="${srcCode}" target-language="${tgtCode}" datatype="plaintext">
+    <body>
+${unit}
+    </body>
+  </file>
+</xliff>`;
+}
+
+async function sendSectionForLocalisation(sectionId) {
+  const s = sections.find(x => x.id === sectionId) || sections[sectionId];
+  if (!s) { alert('Section not found.'); return; }
+  const tgtLang = document.getElementById('pdfTargetLang')?.value || document.getElementById('targetLang')?.value || '';
+  const srcLang = detectedSourceLang || 'English';
+  const xliff   = buildSectionXliff(s, srcLang, tgtLang);
+
+  const btn = document.getElementById('locBtn-' + sectionId);
+  const setBtn = (txt, dis) => { if (btn) { btn.textContent = txt; btn.disabled = !!dis; } };
+  setBtn('⏳ Sending…', true);
+
+  const apiUrl     = document.getElementById('lmsApiUrl')?.value?.trim()
+                   || localStorage.getItem('ciq_api_url')
+                   || 'https://script.google.com/macros/s/AKfycbwxdbALcuNtcWSg8-1p8-LrsRhBL0EctkSGGKWy4duB_Tqol4BGhkZxGc3j8OgfDaiU/exec';
+  const customerId = document.getElementById('lmsCustomerId')?.value?.trim() || 'CUST-DEMO';
+  const assignee   = (typeof GDOCS_SHARE_EMAIL === 'string' && GDOCS_SHARE_EMAIL) ? GDOCS_SHARE_EMAIL : '';
+
+  const payload = {
+    action:        'addLocalisationTask',
+    customerID:    customerId,
+    title:         s.translatedTitle || s.title || ('Section ' + (s.id + 1)),
+    sourceLanguage: srcLang,
+    targetLanguage: tgtLang,
+    sourceText:    s.original,
+    draftTranslation: s.accepted ? s.acceptedText : s.translation,
+    roundTripScore: s.finalScore ?? null,
+    outcome:       s.outcome || '',
+    assignee:      assignee,
+    xliff:         xliff,
+    createdBy:     'CertifiedIQ',
+    createdAt:     new Date().toISOString()
+  };
+
+  try {
+    const res = await fetch('https://quantumbuild-ai-proxy.aged-wave-0b52.workers.dev/lms', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ ...payload, _lmsUrl: apiUrl })
+    });
+    const txt = await res.text();
+    let data = {}; try { data = txt ? JSON.parse(txt) : {}; } catch(_) {}
+    if (res.ok && (data.success || data.ok || data.taskID || data.data?.taskID)) {
+      const tid = data.taskID || data.data?.taskID || '✓';
+      setBtn('✅ Sent to queue', true);
+      addLog('pdfLogEntries', `📤 L${String(s.id+1).padStart(2,'0')}: localisation task created (${tid})${assignee ? ' · assigned ' + assignee : ''}`, 'pass');
+      return;
+    }
+    throw new Error(data.error || data.message || ('LMS HTTP ' + res.status));
+  } catch (err) {
+    // Graceful fallback — backend handler may not exist yet. Give the
+    // reviewer the section as a standard XLIFF they can localise anywhere.
+    addLog('pdfLogEntries', `⚠ L${String(s.id+1).padStart(2,'0')}: LMS task push failed (${err.message}) — downloading XLIFF instead.`, 'warn');
+    try {
+      const fname = (s.translatedTitle || s.title || ('section-' + (s.id+1))).replace(/[^a-z0-9]+/gi,'_').slice(0,40);
+      triggerDownload(new Blob([xliff], { type: 'application/xliff+xml' }), `${fname}_${(tgtLang||'xx')}.xliff`);
+      setBtn('⬇ XLIFF downloaded', true);
+    } catch(e2) {
+      setBtn('✗ Failed', false);
+      alert('Could not send section for localisation: ' + err.message);
+    }
+  }
 }
 
 async function pushCourseToLMS() {
