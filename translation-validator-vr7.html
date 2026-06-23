@@ -7674,17 +7674,12 @@ function useManualTranscript() {
 }
 
 function showSendToPdfBtn(text, title) {
+  // v7: removed — this green button duplicated the course-build flow and
+  // appeared even before the video was watched, causing confusion with the
+  // primary "Parse Transcript & Build Course" button. Intentionally a no-op.
   const existing = document.getElementById('sendToPdfBtn');
   if (existing) existing.remove();
-  const panel = document.getElementById('transcriptPanel') || document.getElementById('videoCoursePanel');
-  if (!panel) return;
-  const btn = document.createElement('button');
-  btn.id = 'sendToPdfBtn';
-  btn.className = 'run-btn';
-  btn.style.cssText = 'width:100%;margin-top:12px;background:var(--green);border-color:var(--green)';
-  btn.innerHTML = '→ Send Transcript to PDF Mode & Build Course';
-  btn.onclick = () => sendTranscriptToPdfMode(text, title);
-  panel.appendChild(btn);
+  return;
 }
 
 async function sendTranscriptToPdfMode(text, title) {
