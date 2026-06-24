@@ -9,7 +9,8 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-<script src="https://unpkg.com/docx@9.5.3/build/index.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@9.5.3/build/index.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
@@ -1340,7 +1341,7 @@
       </div>
       <div>
         <div class="logo-text">CERTIFIEDIQ</div>
-        <div class="logo-sub">Translation Validator v7</div>
+        <div class="logo-sub">Translation Validator v7 · <span id="buildStamp" style="color:#0891b2;font-weight:600">build 2026-06-23.11</span></div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:6px;margin-left:auto;margin-right:16px;flex-wrap:wrap">
@@ -1378,6 +1379,7 @@
       <button class="tab-btn" onclick="switchTab('tests', this)">🧪 Test Suite</button>
       <button class="tab-btn" onclick="switchTab('lookup', this)">🔍 Term Lookup</button>
       <button class="tab-btn" onclick="switchTab('workflow', this)">🗺 Workflow</button>
+      <button class="tab-btn" onclick="switchTab('reviewqueue', this)">📋 Review Queue</button>
     </div>
   </header>
 
@@ -1731,6 +1733,22 @@
         <div class="pdf-icon">📄</div>
         <div class="pdf-drop-title">Drop document here or click to browse</div>
         <div class="pdf-drop-sub">Supports PDF, Word (.docx), plain text (.txt) and Markdown (.md) — any language</div>
+      </div>
+
+      <!-- ── Load from Google Drive (paste a share link) ── -->
+      <div style="margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface)">
+        <div style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--accent);margin-bottom:8px">
+          <span style="font-size:13px">📁</span> LOAD FROM GOOGLE DRIVE
+        </div>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="driveLink" placeholder="Paste a Google Drive share link…"
+            style="flex:1;font-family:var(--mono);font-size:11px;padding:8px 10px;border:1px solid var(--border);background:var(--bg);color:var(--text);outline:none;border-radius:4px"
+            onkeydown="if(event.key==='Enter')loadFromDriveLink()">
+          <button class="export-btn" id="driveLoadBtn" onclick="loadFromDriveLink()" style="border-color:var(--accent);color:var(--accent);white-space:nowrap">⬇ Load</button>
+        </div>
+        <div id="driveStatus" style="font-family:var(--mono);font-size:9px;color:var(--text-muted);margin-top:6px">
+          The file must be shared as <strong>“Anyone with the link”</strong> (Drive → Share → General access). Supports PDF, .docx, .txt, .md.
+        </div>
       </div>
 
       <div class="pdf-loaded" id="pdfLoaded">
@@ -2205,7 +2223,9 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="export-btn" onclick="exportVideoHTML()" style="border-color:var(--accent);color:var(--accent)">⬇ Export Course HTML</button>
           <button class="export-btn" onclick="exportVideoJSON()" style="border-color:var(--accent-dim);color:var(--text-muted)">⬇ Export Course JSON</button>
+          <button class="export-btn" id="scormExportBtn" onclick="exportVideoScorm()" style="border-color:#7c3aed;color:#7c3aed">📦 Export SCORM 1.2</button>
         </div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-muted);margin-top:8px">SCORM 1.2 = a .zip you upload to any LMS (Moodle, TalentLMS, HealthStream, Relias…). Reports lesson completion &amp; quiz score back to the LMS.</div>
         <div style="font-family:var(--mono);font-size:9px;color:var(--text-muted);margin-top:8px">Course HTML is a standalone file — open in any browser, share with workers, or host on your server.</div>
 
         <!-- ── PUSH TO LMS ── -->
@@ -2757,6 +2777,81 @@
 
   </div><!-- /tab-workflow -->
 
+  <!-- ══════════════ REVIEW QUEUE (Stage 3) ══════════════ -->
+  <div id="tab-reviewqueue" class="tab-pane">
+    <div class="section-label">Translation Review Queue</div>
+
+    <!-- LIST VIEW -->
+    <div id="rqListView">
+      <div class="panel" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div class="panel-title" style="margin:0"><div class="dot"></div>Pending &amp; reviewed translations</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="rqFilter" onchange="rqLoadList()" style="font-family:var(--mono);font-size:11px;padding:6px 8px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:4px">
+              <option value="pending_review">Pending review</option>
+              <option value="">All</option>
+              <option value="accepted">Accepted</option>
+              <option value="rejected">Rejected</option>
+              <option value="changes_requested">Changes requested</option>
+              <option value="sent_to_third_party">Sent to 3rd party</option>
+            </select>
+            <button class="export-btn" onclick="rqLoadList()" style="border-color:var(--accent);color:var(--accent)">⟳ Refresh</button>
+          </div>
+        </div>
+        <div id="rqCounts" style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:8px"></div>
+      </div>
+
+      <div id="rqListStatus" style="font-family:var(--mono);font-size:12px;color:var(--text-muted);padding:12px 0"></div>
+      <div id="rqList"></div>
+    </div>
+
+    <!-- DETAIL / REVIEW VIEW -->
+    <div id="rqDetailView" style="display:none">
+      <div class="panel" style="margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <button class="export-btn" onclick="rqBackToList()" style="border-color:var(--text-muted);color:var(--text-muted)">← Back to queue</button>
+          <div id="rqDetailMeta" style="font-family:var(--mono);font-size:11px;color:var(--text-muted)"></div>
+        </div>
+        <div id="rqDetailTitle" style="font-size:16px;font-weight:600;margin-top:10px"></div>
+      </div>
+
+      <!-- validation result -->
+      <div id="rqValidationPanel" class="panel" style="margin-bottom:14px">
+        <div class="panel-title"><div class="dot"></div>Full validation</div>
+        <div id="rqValidationStatus" style="font-family:var(--mono);font-size:12px;color:var(--text-muted);padding:8px 0">Loading…</div>
+        <div id="rqValidationResult"></div>
+      </div>
+
+      <!-- source + translation side by side -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="panel">
+          <div class="panel-title" style="font-size:11px"><div class="dot"></div>Source</div>
+          <div id="rqSourceText" style="font-size:12px;line-height:1.6;white-space:pre-wrap;max-height:340px;overflow:auto;color:var(--text-muted)"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title" style="font-size:11px"><div class="dot"></div>Translation <span id="rqEditHint" style="font-weight:400;color:var(--text-muted);font-size:10px"></span></div>
+          <textarea id="rqTranslationText" readonly style="width:100%;min-height:300px;max-height:340px;font-size:12px;line-height:1.6;font-family:inherit;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;padding:10px;resize:vertical"></textarea>
+        </div>
+      </div>
+
+      <!-- reviewer note -->
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel-title" style="font-size:11px"><div class="dot"></div>Reviewer note <span style="font-weight:400;color:var(--text-muted);font-size:10px">(required to reject)</span></div>
+        <textarea id="rqReviewNote" placeholder="Notes, reason for rejection, or instructions for the 3rd-party reviewer…" style="width:100%;min-height:60px;font-size:12px;font-family:inherit;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;padding:10px;resize:vertical"></textarea>
+      </div>
+
+      <!-- action buttons -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button class="export-btn" id="rqAcceptBtn" onclick="rqAccept()" style="border-color:#059669;color:#059669;font-weight:600">✓ Accept</button>
+        <button class="export-btn" id="rqRejectBtn" onclick="rqReject()" style="border-color:#dc2626;color:#dc2626;font-weight:600">✕ Reject</button>
+        <button class="export-btn" id="rqEditBtn" onclick="rqToggleEdit()" style="border-color:var(--accent);color:var(--accent)">✎ Edit</button>
+        <button class="export-btn" id="rqThirdPartyBtn" onclick="rqSendThirdParty()" style="border-color:#7c3aed;color:#7c3aed">📤 Send to 3rd Party</button>
+        <span id="rqActionStatus" style="font-family:var(--mono);font-size:11px;color:var(--text-muted)"></span>
+      </div>
+    </div>
+
+  </div><!-- /tab-reviewqueue -->
+
   <div id="tab-hiqa" class="tab-pane">
     <div class="section-label">HIQA — Draft National Standards for Home Support Services · Nov 2024</div>
     <div class="panel" style="margin-bottom:16px">
@@ -3037,6 +3132,21 @@ let sections = [];       // [{id, title, original, translation, backA, backB, sc
 let singleState = {};
 
 // ═══════════════════════════════════════════════════════════════
+// MODEL CONFIG — single source of truth for Claude model strings.
+// Update these two values when Anthropic releases new versions; every
+// call site references MODELS.* so there is nothing else to change.
+// (Verified current strings: June 2026.)
+// ═══════════════════════════════════════════════════════════════
+const MODELS = {
+  HAIKU:  'claude-haiku-4-5-20251001',  // fast / cheap — translation, polish, classification
+  SONNET: 'claude-sonnet-4-6',          // higher quality — grouping, dialect, remediation, scoring
+};
+
+// Single source of truth for the LMS / term-database Apps Script backend.
+// Update here only — every call site references LMS_BACKEND_URL.
+const LMS_BACKEND_URL = 'https://script.google.com/macros/s/AKfycbwwqy72mk8izjikdcuqMmIS2gmBhT-8RnyFgLkYcJwVmTD5tZ3kX_MQcoI-pqgQcXXQ/exec';
+
+// ═══════════════════════════════════════════════════════════════
 // LLM COST TRACKER
 // Captures per-call token usage and accumulates session costs.
 // For proxy calls, token counts are estimated (~4 chars/token).
@@ -3045,9 +3155,9 @@ let singleState = {};
 //          DeepL $25.00 per million characters
 // ═══════════════════════════════════════════════════════════════
 const LLM_PRICING = {
-  'claude-haiku-4-5-20251001': { input: 0.80,  output: 4.00,  label: 'Claude Haiku' },
-  'claude-sonnet-4-20250514':  { input: 3.00,  output: 15.00, label: 'Claude Sonnet' },
-  'deepl':                     { input: 25.00, output: 0,     label: 'DeepL' },
+  [MODELS.HAIKU]:  { input: 0.80,  output: 4.00,  label: 'Claude Haiku' },
+  [MODELS.SONNET]: { input: 3.00,  output: 15.00, label: 'Claude Sonnet' },
+  'deepl':         { input: 25.00, output: 0,     label: 'DeepL' },
 };
 
 let _llmCostLog = [];   // { ts, model, label, inputTokens, outputTokens, inputCost, outputCost, totalCost, estimated }
@@ -3388,6 +3498,231 @@ function switchTab(name, btn) {
   document.getElementById('tab-' + name).classList.add('active');
   btn.classList.add('active');
   if (name === 'hiqa') initHiqa();
+  if (name === 'reviewqueue') rqLoadList();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REVIEW QUEUE (Stage 3) — reads/writes the LMS backend review queue
+// ═══════════════════════════════════════════════════════════════
+let _rqCurrent = null;       // currently-open record
+let _rqEditing = false;      // edit mode on the translation textarea
+
+function rqApiBase() {
+  // Reuse the LMS backend URL; allow the in-app LMS field to override.
+  const fromField = (document.getElementById('lmsApiUrl')?.value || '').trim();
+  return fromField || LMS_BACKEND_URL;
+}
+
+async function rqGet(action, params = {}) {
+  const qs = new URLSearchParams(Object.assign({ action }, params)).toString();
+  const res = await fetch(rqApiBase() + '?' + qs);
+  const raw = await res.text();
+  let data; try { data = JSON.parse(raw); } catch (e) { throw new Error('Backend did not return JSON'); }
+  if (!data.success) throw new Error(data.error || 'Backend error');
+  return data.data;
+}
+
+async function rqPost(body) {
+  const res = await fetch(rqApiBase(), {
+    method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(body)
+  });
+  const raw = await res.text();
+  let data; try { data = JSON.parse(raw); } catch (e) { throw new Error('Backend did not return JSON'); }
+  if (!data.success) throw new Error(data.error || 'Backend error');
+  return data.data;
+}
+
+function rqScoreColor(score) {
+  if (score === '' || score == null) return 'var(--text-muted)';
+  const n = Number(score);
+  if (n >= 90) return '#059669';
+  if (n >= 75) return '#d97706';
+  return '#dc2626';
+}
+function rqStatusBadge(status) {
+  const map = {
+    pending_review:      ['#d97706', 'Pending'],
+    accepted:            ['#059669', 'Accepted'],
+    rejected:            ['#dc2626', 'Rejected'],
+    changes_requested:   ['#7c3aed', 'Changes requested'],
+    sent_to_third_party: ['#7c3aed', '3rd party']
+  };
+  const [c, label] = map[status] || ['var(--text-muted)', status || '—'];
+  return '<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:10px;border:1px solid ' + c + ';color:' + c + '">' + label + '</span>';
+}
+
+async function rqLoadList() {
+  rqBackToList();
+  const statusEl = document.getElementById('rqListStatus');
+  const listEl = document.getElementById('rqList');
+  const filter = document.getElementById('rqFilter')?.value || '';
+  statusEl.textContent = 'Loading queue…';
+  listEl.innerHTML = '';
+  try {
+    // counts
+    try {
+      const c = await rqGet('lms.review.counts');
+      document.getElementById('rqCounts').textContent =
+        `${c.total} total · ${c.pending_review} pending · ${c.accepted} accepted · ${c.rejected} rejected`;
+    } catch (e) { /* counts are optional */ }
+
+    const rows = await rqGet('lms.review.list', filter ? { status: filter } : {});
+    if (!rows || !rows.length) { statusEl.textContent = 'No items' + (filter ? ' with status “' + filter + '”.' : ' in the queue.'); return; }
+    statusEl.textContent = '';
+    listEl.innerHTML = rows.map(function(r) {
+      return '<div class="panel" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:200px">' +
+          '<div style="font-size:13px;font-weight:600">' + esc(r.source_name || '—') + '</div>' +
+          '<div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:3px">' +
+            esc(r.language || '') + ' · ' + esc(String(r.created_at || '').slice(0,10)) + ' · ' + esc(r.id) +
+          '</div>' +
+        '</div>' +
+        '<div style="text-align:center;min-width:64px">' +
+          '<div style="font-size:18px;font-weight:700;color:' + rqScoreColor(r.quick_score) + '">' + (r.quick_score === '' || r.quick_score == null ? '—' : r.quick_score) + '</div>' +
+          '<div style="font-family:var(--mono);font-size:8px;color:var(--text-muted)">QUICK</div>' +
+        '</div>' +
+        '<div style="min-width:120px;text-align:right">' + rqStatusBadge(r.status) + '</div>' +
+        '<button class="export-btn" onclick="rqOpen(\'' + r.id + '\')" style="border-color:var(--accent);color:var(--accent)">Review →</button>' +
+      '</div>';
+    }).join('');
+  } catch (e) {
+    statusEl.innerHTML = '<span style="color:#dc2626">✗ ' + esc(e.message) + '</span> — check the LMS backend URL in Setup.';
+  }
+}
+
+function rqBackToList() {
+  document.getElementById('rqListView').style.display = '';
+  document.getElementById('rqDetailView').style.display = 'none';
+  _rqCurrent = null; _rqEditing = false;
+}
+
+async function rqOpen(id) {
+  document.getElementById('rqListView').style.display = 'none';
+  document.getElementById('rqDetailView').style.display = '';
+  document.getElementById('rqActionStatus').textContent = '';
+  document.getElementById('rqReviewNote').value = '';
+  const vStatus = document.getElementById('rqValidationStatus');
+  const vResult = document.getElementById('rqValidationResult');
+  vResult.innerHTML = ''; vStatus.textContent = 'Loading record…';
+
+  try {
+    const rec = await rqGet('lms.review.get', { id });
+    if (!rec) { vStatus.textContent = 'Record not found.'; return; }
+    _rqCurrent = rec; _rqEditing = false;
+
+    document.getElementById('rqDetailTitle').textContent = (rec.source_name || '—') + '  →  ' + (rec.language || '');
+    document.getElementById('rqDetailMeta').innerHTML =
+      rec.id + ' · quick score <strong style="color:' + rqScoreColor(rec.quick_score) + '">' +
+      (rec.quick_score === '' || rec.quick_score == null ? '—' : rec.quick_score) + '</strong> · ' + rqStatusBadge(rec.status) +
+      (rec.doc_url ? ' · <a href="' + rec.doc_url + '" target="_blank" style="color:var(--accent)">open doc ↗</a>' : '');
+    document.getElementById('rqSourceText').textContent = rec.source_text || '(no source text stored)';
+    const ta = document.getElementById('rqTranslationText');
+    ta.value = rec.translated_text || '';
+    ta.setAttribute('readonly', 'readonly');
+    document.getElementById('rqEditHint').textContent = '';
+    document.getElementById('rqEditBtn').textContent = '✎ Edit';
+
+    // Run the full validation suite on this translation.
+    await rqRunValidation(rec);
+  } catch (e) {
+    vStatus.innerHTML = '<span style="color:#dc2626">✗ ' + esc(e.message) + '</span>';
+  }
+}
+
+async function rqRunValidation(rec) {
+  const vStatus = document.getElementById('rqValidationStatus');
+  const vResult = document.getElementById('rqValidationResult');
+  vStatus.textContent = '🔬 Running full validation suite…';
+  vResult.innerHTML = '';
+  // Build a synthetic section object the suite understands.
+  const s = {
+    original: rec.source_text || '',
+    translation: document.getElementById('rqTranslationText').value || rec.translated_text || '',
+    finalScore: (rec.quick_score === '' || rec.quick_score == null) ? 100 : Number(rec.quick_score)
+  };
+  try {
+    await runFullValidationSuite(s, { useLLM: !!(typeof claudeKey === 'function' && claudeKey()) });
+    _rqCurrent._validatedSection = s;
+    const sum = s.validationSummary || { critical:0, major:0, minor:0, info:0, total:0 };
+    const qi = (typeof s.qualityIndex === 'number') ? s.qualityIndex : '—';
+    vStatus.innerHTML = 'Quality index: <strong style="font-size:15px;color:' + rqScoreColor(qi) + '">' + qi + '</strong>' +
+      ' · <span style="color:#dc2626">' + sum.critical + ' critical</span>' +
+      ' · <span style="color:#d97706">' + sum.major + ' major</span>' +
+      ' · <span style="color:var(--text-muted)">' + sum.minor + ' minor</span>';
+    if (sum.total === 0) {
+      vResult.innerHTML = '<div style="font-size:12px;color:#059669">✓ No issues detected by the deterministic + LLM layers.</div>';
+    } else {
+      vResult.innerHTML = (s.validationIssues || []).slice(0, 40).map(function(i) {
+        const col = i.severity === 'critical' ? '#dc2626' : i.severity === 'major' ? '#d97706' : 'var(--text-muted)';
+        return '<div style="font-size:11px;padding:5px 0;border-bottom:1px solid var(--border)">' +
+          '<span style="font-family:var(--mono);font-size:9px;color:' + col + ';text-transform:uppercase">' + esc(i.severity || '') + '</span> ' +
+          esc(i.message || i.code || '') + (i.snippet ? ' <span style="color:var(--text-muted)">— “' + esc(String(i.snippet).slice(0,60)) + '”</span>' : '') +
+        '</div>';
+      }).join('');
+    }
+  } catch (e) {
+    vStatus.innerHTML = '<span style="color:#dc2626">Validation error: ' + esc(e.message) + '</span>';
+  }
+}
+
+function rqToggleEdit() {
+  const ta = document.getElementById('rqTranslationText');
+  const btn = document.getElementById('rqEditBtn');
+  const hint = document.getElementById('rqEditHint');
+  // Stage 3 Part A: editing of the text area + re-validate works locally.
+  // Persisting the edit to the backend needs `lms.review.saveEdit` (Part B).
+  _rqEditing = !_rqEditing;
+  if (_rqEditing) {
+    ta.removeAttribute('readonly'); ta.focus();
+    btn.textContent = '🔬 Re-validate edit';
+    hint.textContent = '— editing (saving to queue arrives in Part B)';
+  } else {
+    ta.setAttribute('readonly', 'readonly');
+    btn.textContent = '✎ Edit';
+    hint.textContent = '';
+    // Re-run validation on the edited text so the reviewer sees the effect.
+    if (_rqCurrent) rqRunValidation(_rqCurrent);
+  }
+}
+
+async function rqSetStatus(status, opts = {}) {
+  if (!_rqCurrent) return;
+  const note = (document.getElementById('rqReviewNote').value || '').trim();
+  if (status === 'rejected' && !note) {
+    document.getElementById('rqActionStatus').innerHTML = '<span style="color:#dc2626">A reason is required to reject. Add a reviewer note.</span>';
+    document.getElementById('rqReviewNote').focus();
+    return false;
+  }
+  const sEl = document.getElementById('rqActionStatus');
+  sEl.textContent = 'Saving…';
+  const reviewScore = _rqCurrent._validatedSection && typeof _rqCurrent._validatedSection.qualityIndex === 'number'
+    ? _rqCurrent._validatedSection.qualityIndex : '';
+  try {
+    await rqPost({
+      action: 'lms.review.setStatus',
+      id: _rqCurrent.id,
+      status: status,
+      reviewer: (opts.reviewer || 'validator'),
+      review_score: reviewScore,
+      review_notes: note
+    });
+    sEl.innerHTML = '<span style="color:#059669">✓ ' + status.replace(/_/g,' ') + ' saved.</span>';
+    setTimeout(rqLoadList, 700);
+    return true;
+  } catch (e) {
+    sEl.innerHTML = '<span style="color:#dc2626">✗ ' + esc(e.message) + '</span>';
+    return false;
+  }
+}
+
+function rqAccept() { rqSetStatus('accepted'); }
+function rqReject() { rqSetStatus('rejected'); }
+
+// Part B (needs backend): send the translation to a 3rd-party reviewer + email.
+function rqSendThirdParty() {
+  document.getElementById('rqActionStatus').innerHTML =
+    '<span style="color:#7c3aed">“Send to 3rd Party” (with email) arrives in Part B — needs the backend handler. The Accept/Reject actions are live now.</span>';
 }
 
 // ── v7: collapsible Setup accordion ───────────────────────────
@@ -3529,14 +3864,19 @@ function outcomeFromScore(score, threshold) {
 // ═══════════════════════════════════════════════════════════════
 async function callClaude(key, model, prompt, _retries = 4) {
   const RETRY_DELAYS = [5000, 15000, 30000, 60000]; // 5s, 15s, 30s, 60s
+  const FETCH_TIMEOUT_MS = 90000; // abort a single attempt after 90s instead of hanging forever
   let lastErr;
   for (let attempt = 0; attempt <= _retries; attempt++) {
+    let _to;
     try {
       // Route through Cloudflare Worker proxy if available (CLAUDE_VR2 key stored server-side)
       const proxyBase = deeplProxyUrl().replace(/\/translate$/, '');
       const useProxy = !!proxyBase;
+      const _ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      if (_ac) _to = setTimeout(() => _ac.abort(), FETCH_TIMEOUT_MS);
       const r = await fetch(useProxy ? `${proxyBase}/claude` : 'https://api.anthropic.com/v1/messages', {
         method: 'POST',
+        signal: _ac ? _ac.signal : undefined,
         headers: useProxy
           ? { 'Content-Type': 'application/json' }
           : { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
@@ -3544,6 +3884,7 @@ async function callClaude(key, model, prompt, _retries = 4) {
           ? JSON.stringify({ model, prompt, maxTokens: 4096, temperature: 0.7 })
           : JSON.stringify({ model, max_tokens: 4096, messages: [{ role: 'user', content: prompt }] })
       });
+      if (_to) { clearTimeout(_to); _to = null; }
 
       // Parse the body defensively — a proxy 500/502/timeout often returns
       // HTML or an empty body, which would make r.json() throw with no message.
@@ -3592,7 +3933,10 @@ async function callClaude(key, model, prompt, _retries = 4) {
       }
       return _responseText;
     } catch(e) {
-      lastErr = e;
+      if (_to) { clearTimeout(_to); _to = null; }
+      lastErr = (e && e.name === 'AbortError')
+        ? new Error(`Request timed out after ${FETCH_TIMEOUT_MS/1000}s (proxy/model slow to respond)`)
+        : e;
       if (attempt < _retries) {
         const delay = RETRY_DELAYS[attempt];
         await new Promise(res => setTimeout(res, delay));
@@ -3859,7 +4203,7 @@ Respond ONLY with valid JSON, no markdown:
       setTimeout(() => reject(new Error('Dialect detection timeout')), 15000)
     );
     const raw = await Promise.race([
-      callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt),
+      callClaude(claudeKey(), MODELS.HAIKU, prompt),
       timeoutPromise
     ]);
     const clean = raw.replace(/```json|```/g, '').trim();
@@ -3970,7 +4314,7 @@ function applyDialectOverride(mode) {
     } catch(e) {
       // Fallback to Claude if ChatGPT fails
       if (claudeKey()) {
-        translation = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt);
+        translation = await callClaude(claudeKey(), MODELS.HAIKU, prompt);
       } else throw e;
     }
   } else if (deeplProxyUrl() && dlTargetCode) {
@@ -3989,19 +4333,19 @@ function applyDialectOverride(mode) {
       + (lang === 'Polish' ? '\n6. MANDATORY LANGUAGE: Replace every "należy/powinien/powinna/powinno" with "musi/jest zobowiązany do" where the source says "must/shall/is required to". Replace "nie powinien/nie należy" with "nie wolno/jest zabronione" where the source says "must not". Replace "natychmiast/od razu" with "niezwłocznie". Replace "podpis" with "kontrasygnata" for countersignature. Replace "okres retencji" with "okres przechowywania danych".' : '')
       + listInstruction
       + glossLockInstr;
-    translation = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', polishPrompt);
+    translation = await callClaude(claudeKey(), MODELS.HAIKU, polishPrompt);
   } else {
     // ── PATH 3: Claude Haiku full translation ────────────────────
     const cl = { isCritical: false, glossaryMatches: [] };
     const prompt = buildSafetyTranslatePrompt(text, lang, cl.isCritical, cl.glossaryMatches, detectedSourceLang || 'English');
-    translation = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt);
+    translation = await callClaude(claudeKey(), MODELS.HAIKU, prompt);
   }
   return applyGlossLockToText(translation);
 }
 
 async function backTransA(text, lang) {
   const dialectHint = buildDialectBackInstructions();
-  return callClaude(claudeKey(), 'claude-haiku-4-5-20251001',
+  return callClaude(claudeKey(), MODELS.HAIKU,
     `Translate the following ${activeDialect.variant || detectedSourceLang} text back to ${detectedSourceLang}. Return only the ${detectedSourceLang} text.${dialectHint}\n\n${text}`);
 }
 
@@ -4016,7 +4360,7 @@ async function backTransB(text, lang) {
   // Fallback: Claude Sonnet for back-translation B (different model = independent signal)
   if (!claudeKey()) throw new Error('Claude API key required for back-translation B');
   const dialectHint = buildDialectBackInstructions();
-  return callClaude(claudeKey(), 'claude-sonnet-4-20250514',
+  return callClaude(claudeKey(), MODELS.SONNET,
     `Translate the following ${lang} text back to ${detectedSourceLang}. Return ONLY the translated text, nothing else.${dialectHint}\n\n${text}`);
 }
 
@@ -4024,7 +4368,7 @@ async function backTransC(text, lang) {
   // Round 2 uses Claude Sonnet — independent model from Haiku for genuine consensus
   if (!claudeKey()) throw new Error('Claude API key required for Round 2');
   const dialectHint = buildDialectBackInstructions();
-  return callClaude(claudeKey(), 'claude-sonnet-4-20250514',
+  return callClaude(claudeKey(), MODELS.SONNET,
     `Translate the following ${lang} text back to ${detectedSourceLang}. Return only the ${detectedSourceLang} text, nothing else.${dialectHint}\n\n${text}`);
 }
 
@@ -4146,7 +4490,7 @@ ${text.slice(0, 800)}`;
   try {
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000));
     const raw = await Promise.race([
-      callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt),
+      callClaude(claudeKey(), MODELS.HAIKU, prompt),
       timeout
     ]);
     const clean = raw.replace(/\`\`\`json|\`\`\`/g, '').trim();
@@ -4194,6 +4538,98 @@ function applySrcLangOverride() {
 // ═══════════════════════════════════════════════════════════════
 // MULTI-FORMAT FILE UPLOAD  (PDF · DOCX · TXT · MD)
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// LOAD FROM GOOGLE DRIVE (paste a share link)
+// Converts a Drive share link to a direct-download URL, fetches the
+// bytes, wraps them as a File, and feeds the existing parse pipeline.
+// Requires the file to be shared "Anyone with the link" — otherwise
+// Drive serves an HTML login/viewer page (detected and reported).
+// ═══════════════════════════════════════════════════════════════
+function _extractDriveId(link) {
+  if (!link) return null;
+  const s = link.trim();
+  // /file/d/FILE_ID/...  ·  ?id=FILE_ID  ·  /d/FILE_ID  ·  bare id
+  const patterns = [
+    /\/file\/d\/([a-zA-Z0-9_-]{20,})/,
+    /[?&]id=([a-zA-Z0-9_-]{20,})/,
+    /\/d\/([a-zA-Z0-9_-]{20,})/,
+    /^([a-zA-Z0-9_-]{25,})$/
+  ];
+  for (const re of patterns) { const m = s.match(re); if (m) return m[1]; }
+  return null;
+}
+
+async function loadFromDriveLink() {
+  const input  = document.getElementById('driveLink');
+  const status = document.getElementById('driveStatus');
+  const btn    = document.getElementById('driveLoadBtn');
+  const setStatus = (msg, color) => { if (status) { status.innerHTML = msg; status.style.color = color || 'var(--text-muted)'; } };
+
+  const link = (input?.value || '').trim();
+  if (!link) { setStatus('Paste a Google Drive share link first.', '#d97706'); return; }
+
+  const id = _extractDriveId(link);
+  if (!id) {
+    setStatus('Could not find a file ID in that link. Use the “Copy link” option from Drive → Share.', '#dc2626');
+    return;
+  }
+
+  const origBtn = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Loading…'; btn.disabled = true; }
+  setStatus('Fetching from Google Drive…');
+
+  try {
+    const url = `https://drive.google.com/uc?export=download&id=${id}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Drive returned HTTP ${res.status}`);
+
+    const blob = await res.blob();
+    const ctype = (blob.type || '').toLowerCase();
+
+    // If Drive served an HTML page, the file isn't link-shared (or it's a
+    // Google-native Doc, which has no direct binary download).
+    if (ctype.includes('text/html')) {
+      const head = (await blob.slice(0, 600).text()).toLowerCase();
+      if (head.includes('google drive') || head.includes('sign in') || head.includes('<html')) {
+        throw new Error('NOT_SHARED');
+      }
+    }
+
+    // Determine a filename + extension. Drive download often omits a name,
+    // so infer from content-type, falling back to a sniff of the bytes.
+    let ext = '';
+    if (ctype.includes('pdf')) ext = 'pdf';
+    else if (ctype.includes('wordprocessingml') || ctype.includes('officedocument')) ext = 'docx';
+    else if (ctype.includes('markdown')) ext = 'md';
+    else if (ctype.includes('text/plain')) ext = 'txt';
+
+    if (!ext) {
+      // Sniff: PDF starts with %PDF, DOCX is a zip (PK\x03\x04)
+      const sig = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+      if (sig[0] === 0x25 && sig[1] === 0x50 && sig[2] === 0x44 && sig[3] === 0x46) ext = 'pdf';
+      else if (sig[0] === 0x50 && sig[1] === 0x4B) ext = 'docx';
+      else ext = 'txt';
+    }
+
+    const fname = `drive-document.${ext}`;
+    const file = new File([blob], fname, { type: blob.type || 'application/octet-stream' });
+
+    setStatus(`✓ Loaded from Drive (${(blob.size/1024).toFixed(0)} KB) — parsing…`, '#059669');
+    await handleFileUpload(file);
+    setStatus('✓ Loaded from Google Drive. Review the extracted text below, then Parse.', '#059669');
+  } catch (e) {
+    if (e.message === 'NOT_SHARED') {
+      setStatus('✗ This file isn’t shared publicly. In Drive: <strong>Share → General access → “Anyone with the link”</strong>, then paste again. (Google-native Docs/Sheets can’t be loaded this way — download as .docx/.pdf to Drive first.)', '#dc2626');
+    } else if (/Failed to fetch|NetworkError|CORS/i.test(e.message)) {
+      setStatus('✗ Couldn’t fetch the file — usually means it isn’t shared as “Anyone with the link”, or it’s a Google-native Doc. Share it for anyone with the link, or download it as .docx/.pdf first.', '#dc2626');
+    } else {
+      setStatus('✗ ' + e.message, '#dc2626');
+    }
+  } finally {
+    if (btn) { btn.textContent = origBtn || '⬇ Load'; btn.disabled = false; }
+  }
+}
+
 async function handleFileUpload(file) {
   if (!file) return;
   const ext = file.name.split('.').pop().toLowerCase();
@@ -4646,7 +5082,7 @@ Rules:
 Document text:
 ${chunk}`;
 
-      const response = await callClaude(claudeKey(), 'claude-sonnet-4-20250514', prompt);
+      const response = await callClaude(claudeKey(), MODELS.SONNET, prompt);
 
       let parsed;
       try {
@@ -4669,7 +5105,7 @@ ${chunk}`;
             // Strategy 4: retry once with a stricter prompt
             addLog('pdfLogEntries', `⚠ Chunk ${ci + 1}: JSON parse failed, retrying with strict prompt...`, 'warn');
             const retryPrompt = `Parse this document into lessons. You MUST respond with ONLY valid JSON, no other text, no markdown, no explanation. Format:\n{"sections":[{"title":"...","content":"..."}]}\n\nDocument:\n${chunk}`;
-            const retryResp = await callClaude(claudeKey(), 'claude-sonnet-4-20250514', retryPrompt);
+            const retryResp = await callClaude(claudeKey(), MODELS.SONNET, retryPrompt);
             try {
               const retryClean = retryResp.replace(/```json|```/g, '').trim();
               const retryMatch = retryClean.match(/\{[\s\S]*\}/);
@@ -4896,7 +5332,7 @@ Rules:
 - If nothing is wrong, return: []`;
 
   try {
-    const resp = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt);
+    const resp = await callClaude(claudeKey(), MODELS.HAIKU, prompt);
     const clean = resp.replace(/```json|```/g, '').trim();
     const match = clean.match(/\[[\s\S]*\]/);
     const phrases = match ? JSON.parse(match[0]) : [];
@@ -5128,7 +5564,7 @@ Return ONLY minified JSON mapping each region key to its grade, no markdown:
 
   let grades = {};
   try {
-    const resp = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt);
+    const resp = await callClaude(claudeKey(), MODELS.HAIKU, prompt);
     const m = resp.replace(/```json|```/g, '').match(/\{[\s\S]*\}/);
     grades = JSON.parse(m ? m[0] : resp);
   } catch(e) {
@@ -5414,7 +5850,7 @@ async function startTranslationWithPreflight() {
     + '{"high_risk_terms":[{"term":"","risk":"","suggested_translation":""}],"proper_nouns":[],"role_constructs":[{"term":"","suggested_translation":""}],"slash_constructs":[{"term":"","risk":""}]}';
 
   try {
-    const response = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt);
+    const response = await callClaude(claudeKey(), MODELS.HAIKU, prompt);
     const clean = response.replace(/```json|```/g, '').trim();
     const match = clean.match(/\{[\s\S]*\}/);
     const data = match ? JSON.parse(match[0]) : null;
@@ -5594,7 +6030,7 @@ async function translateAllSections() {
       addLog('pdfLogEntries', `Translating ${sections.length} section titles → ${lang}...`, 'info');
       const titlesJSON = JSON.stringify(sections.map(s => s.title));
       const titlePrompt = `Translate each of the following section titles from ${detectedSourceLang || 'English'} to ${lang}. Preserve meaning exactly. Return ONLY a JSON array of translated strings in the same order, no markdown, no explanation.\n\n${titlesJSON}`;
-      const titleResp  = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', titlePrompt);
+      const titleResp  = await callClaude(claudeKey(), MODELS.HAIKU, titlePrompt);
       const cleanTitles = titleResp.replace(/```json|```/g,'').trim();
       const translated  = JSON.parse(cleanTitles);
       sections.forEach((s, i) => { s.translatedTitle = translated[i] || s.title; });
@@ -5874,7 +6310,7 @@ async function sectionRetry(id) {
     let newTrans = s.translation;
     if (claudeKey()) {
       const dialectHint = buildDialectInstructions();
-      newTrans = await callClaude(claudeKey(), 'claude-sonnet-4-20250514',
+      newTrans = await callClaude(claudeKey(), MODELS.SONNET,
         `Translate the following ${detectedSourceLang} text to ${lang}. Return only the translated text, nothing else.${dialectHint}\n\n${s.original}`);
       s.translation = newTrans;
     }
@@ -6570,14 +7006,34 @@ function exportTranslatedDocx(lang, base) {
 // ═══════════════════════════════════════════════════════════════
 
 async function _ensureDocxLib() {
+  // Already present and usable?
   if (window.docx && window.docx.CommentRangeStart) return;
-  await new Promise((resolve, reject) => {
+
+  // Try several CDNs in order — environments sometimes block one (e.g. unpkg)
+  // but allow another. Verify the global actually exposes the comment API
+  // after each load rather than trusting onload alone.
+  const SOURCES = [
+    'https://cdn.jsdelivr.net/npm/docx@9.5.3/build/index.umd.js',
+    'https://unpkg.com/docx@9.5.3/build/index.umd.js',
+    'https://cdn.jsdelivr.net/npm/docx/build/index.umd.js'
+  ];
+  const loadOne = (url) => new Promise((resolve, reject) => {
     const sc = document.createElement('script');
-    sc.src = 'https://unpkg.com/docx@9.5.3/build/index.umd.js';
-    sc.onload = resolve;
-    sc.onerror = () => reject(new Error('Could not load docx library — check internet connection'));
+    sc.src = url;
+    sc.onload = () => (window.docx && window.docx.CommentRangeStart)
+      ? resolve()
+      : reject(new Error('loaded but docx API missing'));
+    sc.onerror = () => reject(new Error('network/blocked'));
     document.head.appendChild(sc);
   });
+
+  let lastErr;
+  for (const url of SOURCES) {
+    if (window.docx && window.docx.CommentRangeStart) return;
+    try { await loadOne(url); return; }
+    catch (e) { lastErr = e; }
+  }
+  throw new Error('Could not load the Word (docx) library from any CDN — your network may be blocking cdn.jsdelivr.net and unpkg.com. ' + (lastErr ? '(' + lastErr.message + ')' : ''));
 }
 
 // Build the ordered list of translated blocks for the whole document.
@@ -7072,7 +7528,7 @@ async function singleRetry() {
   const thr = getThreshold('text');
   setLoading('transDisplay'); setLoading('backADisplay'); setLoading('backBDisplay');
   try {
-    const newTrans = await callClaude(claudeKey(), 'claude-sonnet-4-20250514',
+    const newTrans = await callClaude(claudeKey(), MODELS.SONNET,
       `Translate the following ${detectedSourceLang} text to ${singleState.lang}. Return only the translated text, nothing else.\n\n${singleState.originalText}`);
     singleState.translation = newTrans;
     document.getElementById('transDisplay').textContent = newTrans;
@@ -7117,6 +7573,8 @@ window.addEventListener('DOMContentLoaded', () => {
   runPreflightCheck();
   // v7: initialise the collapsible Setup summary (auto-collapses if keys present)
   try { updateSetupStatus(); } catch(e) {}
+  // Build identifier — check this against the latest file you were given.
+  console.log('%cCertifiedIQ Translation Validator — build 2026-06-23.11', 'color:#0891b2;font-weight:bold');
 });
 
 ['claudeKey','deeplKey','deeplProxyUrl','geminiKey'].forEach(id => { // deepseekKey removed v4.6
@@ -7525,6 +7983,10 @@ function _applyWhisperResult(text, segments, duration, status) {
   document.getElementById('manualTranscriptStatus').textContent   = '✓ Set from Whisper';
   document.getElementById('manualTranscriptStatus').style.color   = 'var(--green)';
   showSendToPdfBtn(videoTranscript, videoTitle || 'Video Transcript');
+  // v7 fix: Whisper just produced a usable transcript — reveal the course
+  // panel and recompute the build button's enabled state (this was missing,
+  // so the button stayed disabled even though a transcript existed).
+  revealCoursePanel();
 }
 
 function onVideoTimeUpdate() {
@@ -7813,7 +8275,7 @@ async function runPreflightCheck() {
       const r = await fetch(`${proxyBase}/claude`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', prompt: 'hi', maxTokens: 5 })
+        body: JSON.stringify({ model: MODELS.HAIKU, prompt: 'hi', maxTokens: 5 })
       });
       const txt = await r.text();
       let d = {}; try { d = txt ? JSON.parse(txt) : {}; } catch(_) {}
@@ -7827,7 +8289,7 @@ async function runPreflightCheck() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': directKey,
           'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] })
+        body: JSON.stringify({ model: MODELS.HAIKU, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] })
       });
       checks.push(r.ok ? '✓ Claude (direct)' : '✕ Claude (' + r.status + ')');
     } catch(e) { checks.push('✕ Claude (unreachable)'); }
@@ -7951,6 +8413,15 @@ async function buildVideoCourse() {
   try {
     // ── Step 1: Group segments into lessons ─────────────────────────
     label.textContent = '⏳ Step 1/4 — grouping content into lessons…';
+    // Heartbeat: show elapsed seconds so a slow proxy call doesn't look frozen
+    const _t0 = Date.now();
+    let _baseLabel = 'Step 1/4 — grouping content into lessons';
+    if (window._buildHeartbeat) clearInterval(window._buildHeartbeat);
+    window._buildHeartbeat = setInterval(() => {
+      const secs = Math.round((Date.now() - _t0) / 1000);
+      if (label) label.textContent = `⏳ ${_baseLabel}… ${secs}s`;
+    }, 1000);
+    window._setBuildStage = (txt) => { _baseLabel = txt; };
 
     let lessons; // [{title, segmentIndices?, original, start_time, end_time}]
 
@@ -7998,7 +8469,7 @@ FORMAT:
   }
 ]`;
 
-      const raw = await callClaude(key, 'claude-sonnet-4-20250514', groupPrompt);
+      const raw = await callClaude(key, MODELS.SONNET, groupPrompt);
       let parsed;
       try {
         let clean = raw.trim().replace(/^[\`]{0,3}(?:json)?\s*/i, '').replace(/\s*[\`]{0,3}$/, '').trim();
@@ -8035,7 +8506,7 @@ RULES:
 FORMAT:
 [{"title": "Short Section Title", "original": "Full lesson text in ${srcLang}..."}]`;
 
-      const raw = await callClaude(key, 'claude-sonnet-4-20250514', parsePrompt);
+      const raw = await callClaude(key, MODELS.SONNET, parsePrompt);
       let parsed;
       try {
         let clean = raw.trim().replace(/^[\`]{0,3}(?:json)?\s*/i, '').replace(/\s*[\`]{0,3}$/, '').trim();
@@ -8064,7 +8535,7 @@ Generate ${Math.min(maxSec, 6)} safety training lesson sections in ${srcLang}.
 Each lesson must be directly about the video topic — do NOT generate generic content about unrelated topics.
 Each lesson: 3-5 sentences of practical instructional content.
 Return ONLY a raw JSON array: [{"title":"...","original":"..."}]`;
-      const raw = await callClaude(key, 'claude-sonnet-4-20250514', genPrompt);
+      const raw = await callClaude(key, MODELS.SONNET, genPrompt);
       let parsed;
       try {
         let clean = raw.trim().replace(/^[\`]{0,3}(?:json)?\s*/i, '').replace(/\s*[\`]{0,3}$/, '').trim();
@@ -8096,6 +8567,7 @@ Return ONLY a raw JSON array: [{"title":"...","original":"..."}]`;
     }));
 
     // ── Step 2: Translate + validate each lesson ─────────────────────
+    if (window._buildHeartbeat) { clearInterval(window._buildHeartbeat); window._buildHeartbeat = null; }
     label.textContent = `⏳ Step 2/4 — translating & validating ${videoSections.length} lessons…`;
 
     const glossInstr = buildGlossLockInstruction();
@@ -8124,12 +8596,12 @@ ${s.original}
 
 Return ONLY the translated text, no explanation.`;
 
-      s.translation = await callClaude(key, 'claude-haiku-4-5-20251001', polishPrompt);
+      s.translation = await callClaude(key, MODELS.HAIKU, polishPrompt);
       s.translation = applyGlossLockToText(s.translation, targetLang);
 
       // ── 2c. Translate title ──
       try {
-        const tRaw = await callClaude(key, 'claude-haiku-4-5-20251001',
+        const tRaw = await callClaude(key, MODELS.HAIKU,
           `Translate this section title from ${srcLang} to ${targetLang}. Return ONLY the translated title.\n\n${s.title}`);
         s.translatedTitle = tRaw.trim();
       } catch(e) { s.translatedTitle = s.title; }
@@ -8183,7 +8655,7 @@ Return ONLY the translated text, no explanation.`;
       // ── 2h. Quiz question ──
       label.textContent = `⏳ Lesson ${i+1}/${videoSections.length} — generating quiz…`;
       try {
-        const qRaw = await callClaude(key, 'claude-haiku-4-5-20251001',
+        const qRaw = await callClaude(key, MODELS.HAIKU,
           `Generate one multiple-choice comprehension question in ${targetLang} for this safety content.
 Content: ${s.translation}
 Return ONLY valid JSON: {"question":"...","options":["A. ...","B. ...","C. ...","D. ..."],"correctIndex":0}`
@@ -8200,11 +8672,13 @@ Return ONLY valid JSON: {"question":"...","options":["A. ...","B. ...","C. ...",
       s.status = s.outcome === 'FAIL' ? 'fail' : 'ready';
     }
 
+    if (window._buildHeartbeat) { clearInterval(window._buildHeartbeat); window._buildHeartbeat = null; }
     label.textContent = '✓ Course ready — validated & subtitle-aligned';
     btn.disabled = false;
     renderVideoCourse(targetLang);
 
   } catch(err) {
+    if (window._buildHeartbeat) { clearInterval(window._buildHeartbeat); window._buildHeartbeat = null; }
     const detail = (err && (err.message || err.toString())) || 'Unknown error';
     label.textContent = '✗ Error — ' + detail;
     btn.disabled = false;
@@ -8455,6 +8929,7 @@ function renderVideoCourse(targetLang) {
           <div style="color:var(--text-muted);margin-bottom:4px;">EDIT TRANSLATION</div>
           <textarea id="vedit-${i}" style="width:100%;box-sizing:border-box;font-family:var(--sans,sans-serif);font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text);min-height:60px;resize:vertical;">${s.translation}</textarea>
           <button onclick="saveVideoTranslation(${i})" style="margin-top:4px;font-family:var(--mono);font-size:9px;padding:4px 10px;background:var(--accent);color:#fff;border:none;border-radius:3px;cursor:pointer;">💾 Save Edit</button>
+          <button onclick="sendVideoLessonForLocalisation(${i})" id="vlocBtn-${i}" title="Send this lesson to a reviewer's localisation queue" style="margin-top:4px;margin-left:6px;font-family:var(--mono);font-size:9px;padding:4px 10px;background:transparent;color:#0891b2;border:1px solid #0891b2;border-radius:3px;cursor:pointer;">📤 Send for Localisation</button>
         </div>
         ${s.validationIssues ? `<div style="margin-top:8px">${buildIssuePanel(s)}</div>` : ''}`;
       div.appendChild(qPanel);
@@ -8672,31 +9147,35 @@ ${unit}
 </xliff>`;
 }
 
-async function sendSectionForLocalisation(sectionId) {
-  const s = sections.find(x => x.id === sectionId) || sections[sectionId];
-  if (!s) { alert('Section not found.'); return; }
-  const tgtLang = document.getElementById('pdfTargetLang')?.value || document.getElementById('targetLang')?.value || '';
-  const srcLang = detectedSourceLang || 'English';
+// Generic core — pushes ONE section object to the LMS localisation queue.
+// Both PDF-mode and video-mode wrappers call this, so there is one
+// implementation. opts: { tgtLang, srcLang, btnId, logId, idLabel }
+async function _sendLocalisationTask(s, opts) {
+  const tgtLang = opts.tgtLang || '';
+  const srcLang = opts.srcLang || detectedSourceLang || 'English';
+  const logId   = opts.logId || 'pdfLogEntries';
+  const idLabel = opts.idLabel || 'Section';
   const xliff   = buildSectionXliff(s, srcLang, tgtLang);
 
-  const btn = document.getElementById('locBtn-' + sectionId);
+  const btn = opts.btnId ? document.getElementById(opts.btnId) : null;
   const setBtn = (txt, dis) => { if (btn) { btn.textContent = txt; btn.disabled = !!dis; } };
   setBtn('⏳ Sending…', true);
 
   const apiUrl     = document.getElementById('lmsApiUrl')?.value?.trim()
                    || localStorage.getItem('ciq_api_url')
-                   || 'https://script.google.com/macros/s/AKfycbwxdbALcuNtcWSg8-1p8-LrsRhBL0EctkSGGKWy4duB_Tqol4BGhkZxGc3j8OgfDaiU/exec';
+                   || LMS_BACKEND_URL;
   const customerId = document.getElementById('lmsCustomerId')?.value?.trim() || 'CUST-DEMO';
   const assignee   = (typeof GDOCS_SHARE_EMAIL === 'string' && GDOCS_SHARE_EMAIL) ? GDOCS_SHARE_EMAIL : '';
 
+  const draft = s.accepted ? s.acceptedText : s.translation;
   const payload = {
     action:        'addLocalisationTask',
     customerID:    customerId,
-    title:         s.translatedTitle || s.title || ('Section ' + (s.id + 1)),
+    title:         s.translatedTitle || s.title || idLabel,
     sourceLanguage: srcLang,
     targetLanguage: tgtLang,
     sourceText:    s.original,
-    draftTranslation: s.accepted ? s.acceptedText : s.translation,
+    draftTranslation: draft,
     roundTripScore: s.finalScore ?? null,
     outcome:       s.outcome || '',
     assignee:      assignee,
@@ -8716,16 +9195,16 @@ async function sendSectionForLocalisation(sectionId) {
     if (res.ok && (data.success || data.ok || data.taskID || data.data?.taskID)) {
       const tid = data.taskID || data.data?.taskID || '✓';
       setBtn('✅ Sent to queue', true);
-      addLog('pdfLogEntries', `📤 L${String(s.id+1).padStart(2,'0')}: localisation task created (${tid})${assignee ? ' · assigned ' + assignee : ''}`, 'pass');
+      addLog(logId, `📤 ${idLabel}: localisation task created (${tid})${assignee ? ' · assigned ' + assignee : ''}`, 'pass');
       return;
     }
     throw new Error(data.error || data.message || ('LMS HTTP ' + res.status));
   } catch (err) {
     // Graceful fallback — backend handler may not exist yet. Give the
     // reviewer the section as a standard XLIFF they can localise anywhere.
-    addLog('pdfLogEntries', `⚠ L${String(s.id+1).padStart(2,'0')}: LMS task push failed (${err.message}) — downloading XLIFF instead.`, 'warn');
+    addLog(logId, `⚠ ${idLabel}: LMS task push failed (${err.message}) — downloading XLIFF instead.`, 'warn');
     try {
-      const fname = (s.translatedTitle || s.title || ('section-' + (s.id+1))).replace(/[^a-z0-9]+/gi,'_').slice(0,40);
+      const fname = (s.translatedTitle || s.title || idLabel).replace(/[^a-z0-9]+/gi,'_').slice(0,40);
       triggerDownload(new Blob([xliff], { type: 'application/xliff+xml' }), `${fname}_${(tgtLang||'xx')}.xliff`);
       setBtn('⬇ XLIFF downloaded', true);
     } catch(e2) {
@@ -8733,6 +9212,32 @@ async function sendSectionForLocalisation(sectionId) {
       alert('Could not send section for localisation: ' + err.message);
     }
   }
+}
+
+// PDF / Word document mode — section lives in `sections` keyed by id.
+async function sendSectionForLocalisation(sectionId) {
+  const s = sections.find(x => x.id === sectionId) || sections[sectionId];
+  if (!s) { alert('Section not found.'); return; }
+  const tgtLang = document.getElementById('pdfTargetLang')?.value || document.getElementById('targetLang')?.value || '';
+  return _sendLocalisationTask(s, {
+    tgtLang, srcLang: detectedSourceLang || 'English',
+    btnId: 'locBtn-' + sectionId, logId: 'pdfLogEntries',
+    idLabel: 'L' + String((s.id ?? sectionId) + 1).padStart(2, '0')
+  });
+}
+
+// Video mode — lesson lives in `videoSections` keyed by array index.
+async function sendVideoLessonForLocalisation(i) {
+  const s = videoSections && videoSections[i];
+  if (!s) { alert('Lesson not found.'); return; }
+  const tgtLang = document.getElementById('videoTargetLang')?.value || '';
+  const srcLang = (document.getElementById('videoSrcLang')?.options?.[document.getElementById('videoSrcLang').selectedIndex]?.text)
+               || detectedSourceLang || 'English';
+  return _sendLocalisationTask(s, {
+    tgtLang, srcLang,
+    btnId: 'vlocBtn-' + i, logId: 'pdfLogEntries',
+    idLabel: (s.title ? s.title : 'Lesson ' + (i + 1))
+  });
 }
 
 async function pushCourseToLMS() {
@@ -8864,9 +9369,253 @@ async function pushCourseToLMS() {
 window.addEventListener('DOMContentLoaded', () => {
   const saved = localStorage.getItem('ciq_api_url');
   const el = document.getElementById('lmsApiUrl');
-  const defaultUrl = 'https://script.google.com/macros/s/AKfycbwxdbALcuNtcWSg8-1p8-LrsRhBL0EctkSGGKWy4duB_Tqol4BGhkZxGc3j8OgfDaiU/exec';
+  const defaultUrl = LMS_BACKEND_URL;
   if (el) el.value = saved || defaultUrl;
 });
+
+// ═══════════════════════════════════════════════════════════════
+// SCORM 1.2 EXPORT — packages the video course as a .zip importable
+// into any SCORM-conformant LMS (Moodle, TalentLMS, HealthStream,
+// Relias, etc). 1.2 chosen for maximum compatibility, esp. healthcare
+// LMS platforms. The package contains:
+//   imsmanifest.xml  — course structure + SCORM 1.2 schema
+//   index.html       — self-contained player (lessons + quiz) that
+//                      discovers the LMS API and reports
+//                      lesson_status (completed/passed/failed) + score
+//   subtitles.vtt    — included when timing data exists
+// ═══════════════════════════════════════════════════════════════
+function _xmlEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function _scormManifest(courseTitle, lang, hasVtt) {
+  const id = 'CERTIFIEDIQ_' + Date.now();
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<manifest identifier="${id}" version="1.2"
+  xmlns="http://www.imsproject.org/xsd/imscp_rootv1p1p2"
+  xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_rootv1p2"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.imsproject.org/xsd/imscp_rootv1p1p2 imscp_rootv1p1p2.xsd
+                      http://www.adlnet.org/xsd/adlcp_rootv1p2 adlcp_rootv1p2.xsd">
+  <metadata>
+    <schema>ADL SCORM</schema>
+    <schemaversion>1.2</schemaversion>
+  </metadata>
+  <organizations default="ORG">
+    <organization identifier="ORG">
+      <title>${_xmlEsc(courseTitle)}</title>
+      <item identifier="ITEM1" identifierref="RES1" isvisible="true">
+        <title>${_xmlEsc(courseTitle)}</title>
+        <adlcp:masteryscore>80</adlcp:masteryscore>
+      </item>
+    </organization>
+  </organizations>
+  <resources>
+    <resource identifier="RES1" type="webcontent" adlcp:scormtype="sco" href="index.html">
+      <file href="index.html"/>
+      ${hasVtt ? '<file href="subtitles.vtt"/>' : ''}
+    </resource>
+  </resources>
+</manifest>`;
+}
+
+// The in-package course player. Talks to the LMS via the SCORM 1.2 API.
+function _scormPlayerHtml(courseTitle, lang, lessons, videoUrl, hasVtt) {
+  const courseData = JSON.stringify({ title: courseTitle, language: lang, videoUrl, hasVtt, lessons });
+  // NB: this string becomes a standalone file inside the zip; it must not
+  // depend on anything from the parent app.
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${_xmlEsc(courseTitle)}</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#f4f5f7;color:#1a1d24;line-height:1.6}
+  .wrap{max-width:840px;margin:0 auto;padding:24px 18px 60px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:#667085;font-size:13px;margin-bottom:20px}
+  video{width:100%;border-radius:8px;background:#000;margin-bottom:20px}
+  .lesson{background:#fff;border:1px solid #e4e7ec;border-radius:10px;padding:16px 18px;margin-bottom:16px}
+  .lesson h2{font-size:16px;margin:0 0 8px}
+  .lesson .body{font-size:14px;color:#344054;white-space:pre-wrap}
+  .quiz{margin-top:14px;border-top:1px solid #eef0f3;padding-top:12px}
+  .quiz .q{font-weight:600;font-size:14px;margin-bottom:8px}
+  .opt{display:block;width:100%;text-align:left;background:#f9fafb;border:1px solid #e4e7ec;border-radius:6px;padding:9px 12px;margin-bottom:6px;font-size:13px;cursor:pointer}
+  .opt:hover{background:#f0f2f5}
+  .opt.correct{background:#e7f6ee;border-color:#12b76a;color:#05603a}
+  .opt.wrong{background:#fde7e7;border-color:#f04438;color:#912018}
+  .opt:disabled{cursor:default}
+  .bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #e4e7ec;padding:12px 18px;display:flex;align-items:center;gap:14px;font-size:13px}
+  .bar .prog{flex:1;height:8px;background:#eef0f3;border-radius:5px;overflow:hidden}
+  .bar .fill{height:100%;width:0;background:#7c3aed;transition:width .3s}
+  .bar button{background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-size:13px;cursor:pointer}
+  .bar button:disabled{background:#c4b5e8;cursor:default}
+  .status{font-family:ui-monospace,monospace;font-size:11px;color:#667085}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="ctitle"></h1>
+  <div class="sub" id="csub"></div>
+  <div id="player"></div>
+  <div id="lessons"></div>
+</div>
+<div class="bar">
+  <span class="status" id="scormStatus">Connecting to LMS…</span>
+  <div class="prog"><div class="fill" id="progFill"></div></div>
+  <button id="completeBtn" disabled>Finish course</button>
+</div>
+<script>
+var COURSE = ${courseData};
+
+/* ---- SCORM 1.2 API discovery + wrapper ---- */
+var API = null;
+function findAPI(win){ var n=0; while(win && !win.API && win.parent && win.parent!=win && n<12){ n++; win=win.parent; } return win ? win.API : null; }
+function getAPI(){ var a=findAPI(window); if(!a && window.opener) a=findAPI(window.opener); return a; }
+function lmsGet(k){ return API ? API.LMSGetValue(k) : ''; }
+function lmsSet(k,v){ if(API){ API.LMSSetValue(k,v); } }
+function lmsCommit(){ if(API){ API.LMSCommit(''); } }
+
+var totalLessons = COURSE.lessons.length;
+var answered = {};
+
+function initScorm(){
+  API = getAPI();
+  var st = document.getElementById('scormStatus');
+  if(!API){ st.textContent='Preview mode (no LMS detected) — progress will not be saved.'; return; }
+  API.LMSInitialize('');
+  var status = lmsGet('cmi.core.lesson_status');
+  if(!status || status==='not attempted'){ lmsSet('cmi.core.lesson_status','incomplete'); }
+  // resume
+  var suspend = lmsGet('cmi.suspend_data');
+  if(suspend){ try{ answered = JSON.parse(suspend)||{}; }catch(e){} }
+  st.textContent='Connected to LMS ✓';
+  lmsCommit();
+  updateProgress();
+}
+
+function saveProgress(){
+  if(!API) return;
+  lmsSet('cmi.suspend_data', JSON.stringify(answered));
+  lmsCommit();
+}
+
+function updateProgress(){
+  var done = Object.keys(answered).length;
+  var pct = totalLessons ? Math.round(done/totalLessons*100) : 0;
+  document.getElementById('progFill').style.width = pct+'%';
+  var btn = document.getElementById('completeBtn');
+  btn.disabled = done < totalLessons;
+}
+
+function answer(li, oi, correctIdx, btnEl){
+  if(answered[li]!==undefined) return;
+  answered[li] = (oi===correctIdx);
+  var opts = btnEl.parentNode.querySelectorAll('.opt');
+  opts.forEach(function(o,idx){ o.disabled=true; if(idx===correctIdx) o.classList.add('correct'); else if(idx===oi) o.classList.add('wrong'); });
+  saveProgress();
+  updateProgress();
+}
+
+function finish(){
+  if(!API){ alert('Preview mode — in a real LMS this records completion.'); return; }
+  var correct=0, total=0;
+  Object.keys(answered).forEach(function(k){ total++; if(answered[k]) correct++; });
+  var score = total ? Math.round(correct/total*100) : 100;
+  lmsSet('cmi.core.score.raw', String(score));
+  lmsSet('cmi.core.score.min','0');
+  lmsSet('cmi.core.score.max','100');
+  lmsSet('cmi.core.lesson_status', score>=80 ? 'passed' : 'failed');
+  lmsSet('cmi.core.exit','');
+  lmsCommit();
+  API.LMSFinish('');
+  document.getElementById('scormStatus').textContent = 'Course complete — score '+score+'% ('+(score>=80?'passed':'failed')+'). You may close this window.';
+  document.getElementById('completeBtn').disabled = true;
+}
+
+function render(){
+  document.getElementById('ctitle').textContent = COURSE.title;
+  document.getElementById('csub').textContent = COURSE.language + ' · ' + totalLessons + ' lesson' + (totalLessons!==1?'s':'');
+  if(COURSE.videoUrl && COURSE.videoUrl.indexOf('youtu')===-1){
+    document.getElementById('player').innerHTML =
+      '<video controls'+(COURSE.hasVtt?' crossorigin':'')+'>'+
+      '<source src="'+COURSE.videoUrl+'">'+
+      (COURSE.hasVtt?'<track default kind="subtitles" src="subtitles.vtt" srclang="xx" label="'+COURSE.language+'">':'')+
+      '</video>';
+  } else if(COURSE.videoUrl && COURSE.videoUrl.indexOf('youtu')>-1){
+    var id = COURSE.videoUrl.split('/').pop();
+    document.getElementById('player').innerHTML='<iframe width="100%" height="420" style="border-radius:8px;border:0" src="https://www.youtube.com/embed/'+id+'" allowfullscreen></iframe>';
+  }
+  var html='';
+  COURSE.lessons.forEach(function(L,li){
+    html+='<div class="lesson"><h2>'+esc(L.title)+'</h2><div class="body">'+esc(L.translation||L.original)+'</div>';
+    if(L.quiz && L.quiz.question){
+      html+='<div class="quiz"><div class="q">'+esc(L.quiz.question)+'</div>';
+      (L.quiz.options||[]).forEach(function(opt,oi){
+        html+='<button class="opt" onclick="answer('+li+','+oi+','+(L.quiz.correctIndex||0)+',this)">'+esc(opt)+'</button>';
+      });
+      html+='</div>';
+    }
+    html+='</div>';
+  });
+  document.getElementById('lessons').innerHTML=html;
+  document.getElementById('completeBtn').onclick=finish;
+}
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+window.addEventListener('load', function(){ render(); initScorm(); });
+window.addEventListener('unload', function(){ if(API){ try{ API.LMSFinish(''); }catch(e){} } });
+<\/script>
+</body>
+</html>`;
+}
+
+async function exportVideoScorm() {
+  if (!videoSections || !videoSections.length) { alert('Build a course first.'); return; }
+  if (typeof JSZip === 'undefined') { alert('SCORM packager (JSZip) not loaded — check your internet connection and reload.'); return; }
+
+  const btn = document.getElementById('scormExportBtn');
+  const setBtn = (t, d) => { if (btn) { btn.textContent = t; btn.disabled = !!d; } };
+  setBtn('⏳ Packaging…', true);
+
+  try {
+    const targetLang = document.getElementById('videoTargetLang')?.value || 'Translated';
+    const courseTitle = (videoTitle || 'CertifiedIQ Safety Course') + ' (' + targetLang + ')';
+    const videoUrl = videoMode === 'youtube'
+      ? ('https://youtu.be/' + (videoYtId || ''))
+      : (window._scormVideoUrl || 'course-video.mp4'); // uploaded video referenced by name; admin adds the file if hosting
+
+    const lessons = videoSections.map((s, i) => ({
+      title: s.translatedTitle || s.title || ('Lesson ' + (i + 1)),
+      original: s.original || '',
+      translation: s.translation || '',
+      quiz: {
+        question: s.question || '',
+        options: s.options || [],
+        correctIndex: s.correctIdx ?? 0
+      }
+    }));
+
+    const hasSubtitles = videoSections.some(s => (s.subtitleSegments && s.subtitleSegments.length) || s.start_time !== null);
+    const vtt = hasSubtitles ? buildVTT(videoSections) : '';
+
+    const zip = new JSZip();
+    zip.file('imsmanifest.xml', _scormManifest(courseTitle, targetLang, !!vtt));
+    zip.file('index.html', _scormPlayerHtml(courseTitle, targetLang, lessons, videoUrl, !!vtt));
+    if (vtt) zip.file('subtitles.vtt', vtt);
+    zip.file('certifiediq-course.json', JSON.stringify({ title: courseTitle, language: targetLang, lessons }, null, 2));
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const fname = courseTitle.replace(/[^a-z0-9]+/gi, '_').slice(0, 50) + '_SCORM12.zip';
+    triggerDownload(blob, fname);
+
+    setBtn('✅ SCORM downloaded', true);
+    setTimeout(() => setBtn('📦 Export SCORM 1.2', false), 2500);
+  } catch (e) {
+    console.error('SCORM export failed:', e);
+    setBtn('✗ Failed', false);
+    alert('SCORM export failed: ' + e.message);
+  }
+}
 
 function exportVideoJSON() {
   const targetLang = document.getElementById('videoTargetLang').value;
@@ -8928,7 +9677,7 @@ function exportVideoJSON() {
 // Falls back to hardcoded values below if API is unreachable.
 // ═══════════════════════════════════════════════════════════════
 
-const _DB_API_URL = 'https://script.google.com/macros/s/AKfycbwxdbALcuNtcWSg8-1p8-LrsRhBL0EctkSGGKWy4duB_Tqol4BGhkZxGc3j8OgfDaiU/exec';
+const _DB_API_URL = LMS_BACKEND_URL;
 
 async function loadTermDatabase() {
   const indicator = document.getElementById('dbSyncIndicator');
@@ -10185,7 +10934,7 @@ async function translate(text, lang) {
   if (!claudeKey()) throw new Error('Claude API key required');
   const cl = classifySafetyCritical(text, sector);
   const prompt = buildSafetyTranslatePrompt(text, lang, cl.isCritical, cl.glossaryMatches, detectedSourceLang || 'English');
-  const result = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt);
+  const result = await callClaude(claudeKey(), MODELS.HAIKU, prompt);
   return applyGlossLockToText(result);
 }
 
@@ -10262,7 +11011,7 @@ Use these thresholds: PASS = 80+, REVIEW = 60-79, FAIL = below 60.
 Text to assess:
 ${text}`;
 
-  const response = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt);
+  const response = await callClaude(claudeKey(), MODELS.HAIKU, prompt);
   const clean    = response.replace(/```json|```/g, '').trim();
   return JSON.parse(clean);
 }
@@ -10329,7 +11078,7 @@ async function runPureScore() {
     + 'SUMMARY: [2-3 sentences on overall translation linguistic quality]';
 
   try {
-    const response = await callClaude(claudeKey(), 'claude-sonnet-4-20250514', prompt);
+    const response = await callClaude(claudeKey(), MODELS.SONNET, prompt);
 
     const parse = key => { const m = response.match(new RegExp(key + ':\\s*(\\d+)')); return m ? parseInt(m[1]) : null; };
     const scores = categories.map(c => ({ ...c, score: parse(c.key) }));
@@ -10497,7 +11246,7 @@ async function runSourceScore() {
     + 'SUMMARY: [2-3 sentences on the source document quality for an inspector]';
 
   try {
-    const response = await callClaude(claudeKey(), 'claude-sonnet-4-20250514', prompt);
+    const response = await callClaude(claudeKey(), MODELS.SONNET, prompt);
 
     const parse = key => { const m = response.match(new RegExp(key + ':\\s*(\\d+)')); return m ? parseInt(m[1]) : null; };
     const scores = profile.categories.map(c => ({ ...c, score: parse(c.key) }));
@@ -10621,7 +11370,7 @@ async function runHiqaScore() {
     + 'SUMMARY: [2-3 sentences assessing translation quality - distinguish between source issues and translator-introduced issues]';
 
   try {
-    const response = await callClaude(claudeKey(), 'claude-sonnet-4-20250514', prompt);
+    const response = await callClaude(claudeKey(), MODELS.SONNET, prompt);
 
     const parse = (key) => {
       const m = response.match(new RegExp(key + ':\\s*(\\d+)'));
@@ -11147,7 +11896,7 @@ ${translation}`;
 
   let parsed;
   try {
-    const resp = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', prompt);
+    const resp = await callClaude(claudeKey(), MODELS.HAIKU, prompt);
     const clean = resp.replace(/```json|```/g, '').trim();
     const m = clean.match(/\{[\s\S]*\}/);
     parsed = JSON.parse(m ? m[0] : clean);
@@ -11505,7 +12254,7 @@ State the current professional standard achieved (e.g. 91% average = good workin
 Be direct and specific. Do not pad. Name exact section numbers (L01, L02 etc.) when citing issues.`;
 
   try {
-    const response = await callClaude(claudeKey(), 'claude-sonnet-4-20250514', prompt);
+    const response = await callClaude(claudeKey(), MODELS.SONNET, prompt);
 
     // Render the response
     const html = response
@@ -11605,7 +12354,7 @@ Return ONLY valid JSON, no markdown:
 If no specific fixes can be extracted, return: []`;
 
   try {
-    const resp = await callClaude(claudeKey(), 'claude-haiku-4-5-20251001', extractPrompt);
+    const resp = await callClaude(claudeKey(), MODELS.HAIKU, extractPrompt);
     const clean = resp.replace(/```json|```/g, '').trim();
     const match = clean.match(/\[[\s\S]*\]/);
     const fixes = match ? JSON.parse(match[0]) : [];
@@ -11844,16 +12593,8 @@ async function exportComparisonReport() {
     return;
   }
 
-  // Dynamically load docx UMD if not already present
-  if (!window.docx) {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://unpkg.com/docx@9.5.3/build/index.umd.js';
-      s.onload = resolve;
-      s.onerror = () => reject(new Error('Could not load docx library — check internet connection'));
-      document.head.appendChild(s);
-    });
-  }
+  // Ensure docx is loaded (tries multiple CDNs, verifies the API)
+  await _ensureDocxLib();
 
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
           AlignmentType, HeadingLevel, BorderStyle, WidthType, ShadingType,
@@ -12115,7 +12856,7 @@ async function validateApiKey(id) {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': val, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] })
+        body: JSON.stringify({ model: MODELS.HAIKU, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] })
       });
       if (resp.status === 401) { setKeyStatus(id, 'fail', '✕ invalid key'); return; }
       if (resp.status === 403) { setKeyStatus(id, 'fail', '✕ no access'); return; }
